@@ -8,7 +8,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 
 #include "minmea.h"
 
@@ -16,7 +15,7 @@
 
 int main(void)
 {
-    char line[MINMEA_MAX_LENGTH];
+    char line[MINMEA_MAX_SENTENCE_LENGTH];
     while (fgets(line, sizeof(line), stdin) != NULL) {
         printf("%s", line);
         switch (minmea_sentence_id(line, false)) {
@@ -77,7 +76,7 @@ int main(void)
                 struct minmea_sentence_gsv frame;
                 if (minmea_parse_gsv(&frame, line)) {
                     printf(INDENT_SPACES "$xxGSV: message %d of %d\n", frame.msg_nr, frame.total_msgs);
-                    printf(INDENT_SPACES "$xxGSV: sattelites in view: %d\n", frame.total_sats);
+                    printf(INDENT_SPACES "$xxGSV: satellites in view: %d\n", frame.total_sats);
                     for (int i = 0; i < 4; i++)
                         printf(INDENT_SPACES "$xxGSV: sat nr %d, elevation: %d, azimuth: %d, snr: %d dbm\n",
                             frame.sats[i].nr,

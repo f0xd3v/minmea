@@ -1,6 +1,7 @@
 # minmea, a lightweight GPS NMEA 0183 parser library
 
-[![Build Status](https://travis-ci.org/kosma/minmea.svg?branch=master)](https://travis-ci.org/kosma/minmea)
+[![C/C++ 
+CI](https://github.com/kosma/minmea/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/kosma/minmea/actions/workflows/c-cpp.yml)
 
 Minmea is a minimalistic GPS parser library written in pure C intended for
 resource-constrained platforms, especially microcontrollers and other embedded
@@ -19,12 +20,13 @@ systems.
 
 ## Supported sentences
 
-* ``RMC`` (Recommended Minimum: position, velocity, time)
+* ``GBS`` (Satellite Fault Detection)
 * ``GGA`` (Fix Data)
-* ``GSA`` (DOP and active satellites)
 * ``GLL`` (Geographic Position: Latitude/Longitude)
+* ``GSA`` (DOP and active satellites)
 * ``GST`` (Pseudorange Noise Statistics)
 * ``GSV`` (Satellites in view)
+* ``RMC`` (Recommended Minimum: position, velocity, time)
 * ``VTG`` (Track made good and Ground speed)
 * ``ZDA`` (Time & Date - UTC, day, month, year and local time zone)
 
@@ -39,6 +41,9 @@ Minmea runs out-of-the-box under most Unix-compatible systems. Support for non-U
 1. Define `MINMEA_INCLUDE_COMPAT` in the build environment.
 2. Add appropriate compatibility header from under `compat/` directory as `minmea_compat.h`.
 
+If your GPS receiver outputs very long sentences, consider increasing `MINMEA_MAX_SENTENCE_LENGTH`
+in your build environment.
+
 ## Fractional number format
 
 Internally, minmea stores fractional numbers as pairs of two integers: ``{value, scale}``.
@@ -51,7 +56,7 @@ to either fixed-point or floating-point format:
 
 The compound type ``struct minmea_float`` uses ``int_least32_t`` internally. Therefore,
 the coordinate precision is guaranteed to be at least ``[+-]DDDMM.MMMMM`` (five decimal digits)
-or ±2cm LSB at the equator. Note that GPS modules commonly only provide four deciminal digits
+or ±2cm LSB at the equator. Note that GPS modules commonly only provide four decimal digits
 (``[+-]DDDMM.MMMM``), which equates to ±20cm (0.0001 minute is 0.0001/60 degrees and one degree
 is about 111km) at the equator.
 
@@ -73,7 +78,7 @@ The library doesn't perform this conversion automatically for the following reas
 ## Example
 
 ```c
-char line[MINMEA_MAX_LENGTH];
+char line[MINMEA_MAX_SENTENCE_LENGTH];
 while (fgets(line, sizeof(line), stdin) != NULL) {
     switch (minmea_sentence_id(line, false)) {
         case MINMEA_SENTENCE_RMC: {
@@ -105,7 +110,7 @@ while (fgets(line, sizeof(line), stdin) != NULL) {
             struct minmea_sentence_gsv frame;
             if (minmea_parse_gsv(&frame, line)) {
                 printf("$GSV: message %d of %d\n", frame.msg_nr, frame.total_msgs);
-                printf("$GSV: sattelites in view: %d\n", frame.total_sats);
+                printf("$GSV: satellites in view: %d\n", frame.total_sats);
                 for (int i = 0; i < 4; i++)
                     printf("$GSV: sat nr %d, elevation: %d, azimuth: %d, snr: %d dbm\n",
                         frame.sats[i].nr,
@@ -127,11 +132,19 @@ good to go.
 
 Building and running the tests requires the following:
 
+* CMake
 * Check Framework (https://libcheck.github.io/check/).
 * Clang Static Analyzer (https://clang-analyzer.llvm.org/).
 
-If you have both in your ``$PATH``, running the tests should be as simple as
-typing ``make``.
+If you have both in your ``$PATH``, running the tests should be as simple as:
+
+```
+mkdir build
+cd build
+cmake ../
+make
+make test
+```
 
 ## Limitations
 
@@ -143,10 +156,12 @@ typing ``make``.
   action is to build with ``-Dtimegm=mktime`` which will work correctly as long
   the system runs in the default ``UTC`` timezone.
 
-## Bugs
+## Contributing
 
-There are plenty. Report them on GitHub, or - even better - open a pull request.
-Please write unit tests for any new functions you add - it's fun!
+1. Use the GitHub pull request system.
+2. Make sure to follow to existing style (naming, indentation, etc.)
+3. Write unit tests for any new functionality you add.
+4. Be aware you're submitting your work under the repository's license.
 
 ## Licensing
 

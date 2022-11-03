@@ -11,13 +11,19 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <check.h>
 
 #include "minmea.h"
 
 static const char *valid_sentences_nochecksum[] = {
     "$GPTXT,xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "$GPTXT,xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "$GPTXT,hello\n",
+    "$GPTXT,hello\r",
+    "$GPTXT,hello\r\n",
+    "$GPTXT,hello\r\n\r\n",
+    "$GPTXT,hello\n\r\r\n",
     NULL,
 };
 
@@ -41,12 +47,11 @@ static const char *valid_sentences_checksum[] = {
     "$GPVTG,,T,,M,0.016,N,0.030,K,A*27",
     "$GPGST,024603.00,3.2,6.6,4.7,47.3,5.8,5.6,22.0*58",
     "$GPZDA,160012.71,11,03,2004,-1,00*7D",
+    "$GNGBS,170556.00,3.0,2.9,8.3,,,,*5C",
     NULL,
 };
 
 static const char *invalid_sentences[] = {
-    "$GPTXT,xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        "xxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "$GPTXT,01,01,02,ANTSTATUS=INIT*26",
     "$GPRMC,,V,,,,,,,,,,N*532",
     "$GPVTG,,,,\xff,,,,,N*30",
@@ -55,6 +60,9 @@ static const char *invalid_sentences[] = {
     "gps: $GPGLL,,,,,,V,N",
     "$GPXTE,A,A,0.67,L,N*6e",
     "$GPXTE,A,A,0.67,L,N*6g",
+    "$GPTXT,hello\n ",
+    "$GPTXT,hello\r*24",
+    "$GPTXT,hello\r\n$",
     NULL,
 };
 
@@ -76,18 +84,18 @@ END_TEST
 START_TEST(test_minmea_check)
 {
     for (const char **sentence=valid_sentences_nochecksum; *sentence; sentence++) {
-        ck_assert_msg(minmea_check(*sentence, false) == true, *sentence);
-        ck_assert_msg(minmea_check(*sentence, true) == false, *sentence);
+        ck_assert_msg(minmea_check(*sentence, false) == true, "%s", *sentence);
+        ck_assert_msg(minmea_check(*sentence, true) == false, "%s", *sentence);
     }
 
     for (const char **sentence=valid_sentences_checksum; *sentence; sentence++) {
-        ck_assert_msg(minmea_check(*sentence, false) == true, *sentence);
-        ck_assert_msg(minmea_check(*sentence, true) == true, *sentence);
+        ck_assert_msg(minmea_check(*sentence, false) == true, "%s", *sentence);
+        ck_assert_msg(minmea_check(*sentence, true) == true, "%s", *sentence);
     }
 
     for (const char **sentence=invalid_sentences; *sentence; sentence++) {
-        ck_assert_msg(minmea_check(*sentence, false) == false, *sentence);
-        ck_assert_msg(minmea_check(*sentence, true) == false, *sentence);
+        ck_assert_msg(minmea_check(*sentence, false) == false, "%s", *sentence);
+        ck_assert_msg(minmea_check(*sentence, true) == false, "%s", *sentence);
     }
 }
 END_TEST
@@ -260,7 +268,7 @@ END_TEST
 
 START_TEST(test_minmea_scan_s)
 {
-    char value[MINMEA_MAX_LENGTH];
+    char value[MINMEA_MAX_SENTENCE_LENGTH];
 
     ck_assert(minmea_scan(",bar,baz", "s", value) == true);
     ck_assert_str_eq(value, "");
@@ -393,7 +401,7 @@ START_TEST(test_minmea_scan_complex2)
     struct minmea_float bearing_true; char bearing_true_mark;
     struct minmea_float bearing_magnetic; char bearing_magnetic_mark;
     struct minmea_float distance; char distance_units;
-    char name[MINMEA_MAX_LENGTH];
+    char name[MINMEA_MAX_SENTENCE_LENGTH];
     ck_assert(minmea_scan(sentence, "tTfdfdfcfcfcs",
         type,
         &t,
@@ -462,6 +470,48 @@ START_TEST(test_minmea_scan_complex3)
     ck_assert_int_eq(longitude_error_deviation.scale, 10);
     ck_assert_int_eq(altitude_error_deviation.value, 220);
     ck_assert_int_eq(altitude_error_deviation.scale, 10);
+}
+END_TEST
+
+START_TEST(test_minmea_parse_gbs1)
+{
+    const char *sentence = "$GNGBS,170556.00,3.0,2.9,8.3,,,,";
+    struct minmea_sentence_gbs frame = {};
+    static const struct minmea_sentence_gbs expected = {
+	    .time = { 17, 5, 56, 0 },
+	    .err_latitude = { 30, 10 },
+	    .err_longitude = { 29, 10 },
+	    .err_altitude = { 83, 10 },
+	    .svid = 0,
+	    .prob = { 0, 0 },
+	    .bias = { 0, 0 },
+	    .stddev = { 0, 0 },
+    };
+    ck_assert(minmea_check(sentence, false) == true);
+    ck_assert(minmea_check(sentence, true) == false);
+    ck_assert(minmea_parse_gbs(&frame, sentence) == true);
+    ck_assert(!memcmp(&frame, &expected, sizeof(frame)));
+}
+END_TEST
+
+START_TEST(test_minmea_parse_gbs2)
+{
+    const char *sentence = "$GPGBS,015509.00,-0.031,-0.186,0.219,19,0.000,-0.354,6.972*4D";
+    struct minmea_sentence_gbs frame = {};
+    static const struct minmea_sentence_gbs expected = {
+        .time = { 1, 55, 9 },
+        .err_latitude = { -31, 1000 },
+        .err_longitude = { -186, 1000 },
+        .err_altitude = { 219, 1000 },
+        .svid = 19,
+        .prob = { 0, 1000 },
+        .bias = { -354, 1000 },
+        .stddev = { 6972, 1000 },
+    };
+    ck_assert(minmea_check(sentence, false) == true);
+    ck_assert(minmea_check(sentence, true) == true);
+    ck_assert(minmea_parse_gbs(&frame, sentence) == true);
+    ck_assert(!memcmp(&frame, &expected, sizeof(frame)));
 }
 END_TEST
 
@@ -865,6 +915,27 @@ START_TEST(test_minmea_parse_vtg2)
 }
 END_TEST
 
+START_TEST(test_minmea_parse_vtg3)
+{
+    // https://github.com/kosma/minmea/issues/57
+    const char *sentence = "$GNVTG,,,,,,,,,N*2E";
+    // clear structs before initialization to enable use of memcmp()
+    struct minmea_sentence_vtg frame = {};
+    struct minmea_sentence_vtg expected = {};
+    expected = (struct minmea_sentence_vtg){
+        .true_track_degrees = { 0, 0 },
+        .magnetic_track_degrees = { 0, 0 },
+        .speed_knots = { 0, 0 },
+        .speed_kph = { 0, 0 },
+        .faa_mode = MINMEA_FAA_MODE_NOT_VALID,
+    };
+    ck_assert(minmea_check(sentence, false) == true);
+    ck_assert(minmea_check(sentence, true) == true);
+    ck_assert(minmea_parse_vtg(&frame, sentence) == true);
+    ck_assert(!memcmp(&frame, &expected, sizeof(frame)));
+}
+END_TEST
+
 START_TEST(test_minmea_parse_zda1)
 {
     const char *sentence = "$GPZDA,160012.71,11,03,2004,-1,00*7D";
@@ -945,50 +1016,76 @@ START_TEST(test_minmea_gettime)
 {
     struct minmea_date d = { 14, 2, 14 };
     struct minmea_time t = { 13, 0, 9, 123456 };
+    struct tm tm;
     struct timespec ts;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
     ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+    ck_assert_int_eq(tm.tm_year, 2014-1900);
+    ck_assert_int_eq(tm.tm_mon, 1);
+    ck_assert_int_eq(tm.tm_mday, 14);
+    ck_assert_int_eq(tm.tm_hour, 13);
+    ck_assert_int_eq(tm.tm_min, 0);
+    ck_assert_int_eq(tm.tm_sec, 9);
     ck_assert_int_eq(ts.tv_sec, 1392382809);
     ck_assert_int_eq(ts.tv_nsec, 123456000);
 
     d.year = -1;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) != 0);
     ck_assert(minmea_gettime(&ts, &d, &t) != 0);
     d.year = 14;
 
     t.hours = -1;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) != 0);
     ck_assert(minmea_gettime(&ts, &d, &t) != 0);
     t.hours = 13;
 
     /* two digit year conversions */
     d.year = 80;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
     ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+    ck_assert_int_eq(tm.tm_year, 1980-1900);
     ck_assert_int_eq(ts.tv_sec, 319381209);      /* 1980 */
     d.year = 37;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
     ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+    ck_assert_int_eq(tm.tm_year, 2037-1900);
     ck_assert_int_eq(ts.tv_sec, 2118229209);     /* 2037 */
     /* skip >= 2038 tests on 32-bit time_t platforms */
     if (sizeof(time_t) == sizeof(int64_t)) {
         d.year = 79;
+        ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
         ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+        ck_assert_int_eq(tm.tm_year, 2079-1900);
         ck_assert_int_eq(ts.tv_sec, 3443605209); /* 2079 */
     }
 
     /* four digit year conversions */
     d.year = 1979;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
     ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+    ck_assert_int_eq(tm.tm_year, 1979-1900);
     ck_assert_int_eq(ts.tv_sec, 287845209);
     d.year = 1980;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
     ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+    ck_assert_int_eq(tm.tm_year, 1980-1900);
     ck_assert_int_eq(ts.tv_sec, 319381209);
     d.year = 2037;
+    ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
     ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+    ck_assert_int_eq(tm.tm_year, 2037-1900);
     ck_assert_int_eq(ts.tv_sec, 2118229209);
     /* skip >= 2038 tests on 32-bit time_t platforms */
     if (sizeof(time_t) == sizeof(int64_t)) {
         d.year = 2079;
+        ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
         ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+        ck_assert_int_eq(tm.tm_year, 2079-1900);
         ck_assert_int_eq(ts.tv_sec, 3443605209);
         d.year = 2080;
+        ck_assert(minmea_getdatetime(&tm, &d, &t) == 0);
         ck_assert(minmea_gettime(&ts, &d, &t) == 0);
+        ck_assert_int_eq(tm.tm_year, 2080-1900);
         ck_assert_int_eq(ts.tv_sec, 3475141209);
     }
 }
@@ -1062,6 +1159,8 @@ static Suite *minmea_suite(void)
     suite_add_tcase(s, tc_scan);
 
     TCase *tc_parse = tcase_create("minmea_parse");
+    tcase_add_test(tc_parse, test_minmea_parse_gbs1);
+    tcase_add_test(tc_parse, test_minmea_parse_gbs2);
     tcase_add_test(tc_parse, test_minmea_parse_rmc1);
     tcase_add_test(tc_parse, test_minmea_parse_rmc2);
     tcase_add_test(tc_parse, test_minmea_parse_gga1);
@@ -1076,6 +1175,7 @@ static Suite *minmea_suite(void)
     tcase_add_test(tc_parse, test_minmea_parse_gsv5);
     tcase_add_test(tc_parse, test_minmea_parse_vtg1);
     tcase_add_test(tc_parse, test_minmea_parse_vtg2);
+    tcase_add_test(tc_parse, test_minmea_parse_vtg3);
     tcase_add_test(tc_parse, test_minmea_parse_zda1);
     suite_add_tcase(s, tc_parse);
 
